@@ -68,7 +68,7 @@ mark{background:#ffe58a;color:inherit;border-radius:2px}
 <body>
 <header>
 <h1>화재안전 실태조사 대상 조회</h1>
-<p class="sub">창원시 진해구 공장·창고 · 도로명주소별 묶음 · 주소를 누르면 구글지도가 새 창으로 열리고, 지번별로 메모를 남길 수 있습니다</p>
+<p class="sub">창원시 진해구 공장·창고 · 도로명주소별 묶음 · 주소를 누르면 선택한 지도(구글·네이버)가 새 창으로 열리고, 지번별로 메모를 남길 수 있습니다</p>
 </header>
 <div class="bar">
 <div class="tabs" id="tabs"></div>
@@ -78,9 +78,10 @@ mark{background:#ffe58a;color:inherit;border-radius:2px}
 <select id="sort" aria-label="정렬">
 <option value="addr">주소순</option><option value="cnt">동 수 많은 순</option><option value="area">연면적 큰 순</option>
 </select>
+<select id="map" aria-label="지도 선택"><option value="google">지도: 구글</option><option value="naver">지도: 네이버</option></select>
 <label class="chk"><input type="checkbox" id="onlym"> 메모 있는 것만</label>
 <button class="btn" id="all">모두 펼치기</button><button class="btn" id="none">모두 접기</button><button class="btn" id="reset">초기화</button>
-<button class="btn" id="mex">메모 내보내기</button><button class="btn" id="mim">메모 불러오기</button><input type="file" id="mfile" accept=".json,application/json" hidden>
+<button class="btn" id="xl">엑셀 다운로드</button><button class="btn" id="mex">메모 내보내기</button><button class="btn" id="mim">메모 불러오기</button><input type="file" id="mfile" accept=".json,application/json" hidden>
 </div>
 <p class="stat" id="stat"></p>
 </div>
@@ -105,7 +106,9 @@ D.forEach(r=>{r.k=r.r||('지번:'+r.j);r.hay=[r.r,r.j,r.n,r.d].join(' ').toLower
 const FLAGS=[['ind','산단'],['dg','위험물'],['s1','초고위험'],['s2','고위험'],['fh','화재이력'],['ch','유해화학물질']];
 const HOT=new Set(['s1','fh','ch']);
 const PIN='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg>';
-const mapUrl=a=>'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(a);
+let MAP='google';try{MAP=localStorage.getItem('fsurvey-map')||'google'}catch(e){}
+const MAPN=()=>MAP==='naver'?'네이버지도':'구글지도';
+const mapUrl=a=>MAP==='naver'?'https://map.naver.com/p/search/'+encodeURIComponent(a.replace(/\s*\([^)]*\)/g,'').trim()):'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(a);
 
 function rowsNow(){
   const toks=q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -120,7 +123,7 @@ function addrHtml(g){
   if(!g.r) return `<a class="addr" href="${mapUrl(g.j)}" target="_blank" rel="noopener">${PIN}${hl(g.j)}</a><span class="jib">도로명주소 없음 · 지번으로 검색</span>`;
   return g.r.split(/(?<=\))\s*,\s*/).map(a=>{
     const s=a.startsWith(PRE)?a.slice(PRE.length):a;
-    return `<a class="addr" href="${mapUrl(a)}" target="_blank" rel="noopener" title="구글지도에서 검색: ${esc(a)}">${PIN}<small>${PRE}</small>${hl(s)}</a>`}).join('');
+    return `<a class="addr" href="${mapUrl(a)}" target="_blank" rel="noopener" title="${MAPN()}에서 검색: ${esc(a)}">${PIN}<small>${PRE}</small>${hl(s)}</a>`}).join('');
 }
 function tags(g){
   const mj=[...new Set(g.rows.map(r=>r.j))].filter(memoOf);
@@ -189,6 +192,56 @@ $('#mfile').onchange=e=>{
   f.text().then(t=>{const o=JSON.parse(t);let n=0;for(const j in o)if(o[j]&&o[j].t){M[j]=o[j];n++}
     saveM();render();alert(n+'건의 메모를 불러왔습니다. (같은 지번의 기존 메모는 덮어씁니다)')}).catch(()=>alert('메모 파일을 읽을 수 없습니다.'));
   e.target.value='';
+};
+//XLSX-START
+const crcT=(()=>{const t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+const crc32=b=>{let r=-1;for(let i=0;i<b.length;i++)r=crcT[(r^b[i])&255]^(r>>>8);return(r^-1)>>>0};
+function zip(files){
+  const enc=new TextEncoder(),loc=[],cen=[];let off=0;
+  const u16=v=>[v&255,v>>8&255],u32=v=>[v&255,v>>8&255,v>>16&255,v>>>24&255];
+  for(const [name,txt] of files){
+    const nb=enc.encode(name),d=enc.encode(txt),c=crc32(d),n=u32(d.length);
+    const lh=[0x50,0x4b,3,4,20,0,0,8,0,0,0,0,33,0,...u32(c),...n,...n,...u16(nb.length),0,0];
+    loc.push(Uint8Array.from(lh),nb,d);
+    cen.push(Uint8Array.from([0x50,0x4b,1,2,20,0,20,0,0,8,0,0,0,0,33,0,...u32(c),...n,...n,...u16(nb.length),...new Array(12).fill(0),...u32(off)]),nb);
+    off+=lh.length+nb.length+d.length;
+  }
+  const cs=cen.reduce((a,b)=>a+b.length,0);
+  const end=Uint8Array.from([0x50,0x4b,5,6,0,0,0,0,...u16(files.length),...u16(files.length),...u32(cs),...u32(off),0,0]);
+  const all=[...loc,...cen,end],out=new Uint8Array(all.reduce((a,b)=>a+b.length,0));let p=0;
+  all.forEach(b=>{out.set(b,p);p+=b.length});return out;
+}
+const X=s=>String(s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function buildXlsx(){
+  const H=['조사단계','도로명주소','지번주소','건축물명칭','동명칭','허가일','사용승인일','연면적(㎡)','층수(지상)','층수(지하)','높이(m)','주용도','층대표용도','위험물','화재이력','초고위험','고위험','유해화학물질','산단','메모','메모 저장시각'];
+  const W=[9,44,30,30,12,11,11,12,9,9,9,10,14,7,7,8,7,10,6,40,14];
+  const nat=(a,b)=>a.localeCompare(b,'ko',{numeric:true}),O=v=>v?'O':'';
+  const rows=[...D].sort((a,b)=>nat(a.st,b.st)||nat(a.k,b.k)||nat(a.j,b.j)||nat(a.n,b.n));
+  const data=rows.map(r=>[ST[r.st],r.r||'(도로명주소 없음)',r.j,r.n,r.d,dt(r.p),dt(r.u),r.a,r.fa,r.fb,r.h,r.y,r.yy,O(r.dg),O(r.fh),O(r.s1),O(r.s2),O(r.ch),O(r.ind),memoOf(r.j),(M[r.j]&&M[r.j].u)||'']);
+  const L=i=>String.fromCharCode(65+i);
+  const cell=(v,ri,ci,st)=>{const ref=L(ci)+(ri+1),a=st?` s="${st}"`:'';
+    if(v==null||v==='')return `<c r="${ref}"${a}/>`;
+    if(typeof v==='number')return `<c r="${ref}"${a}><v>${v}</v></c>`;
+    return `<c r="${ref}"${a} t="inlineStr"><is><t xml:space="preserve">${X(v)}</t></is></c>`};
+  const sd=[H,...data].map((row,ri)=>`<row r="${ri+1}">`+row.map((v,ci)=>cell(v,ri,ci,ri===0?1:ci===7?3:ci===19?2:0)).join('')+'</row>').join('');
+  const NS='xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"',RN='http://schemas.openxmlformats.org/officeDocument/2006/relationships',PR='http://schemas.openxmlformats.org/package/2006/relationships';
+  const hd='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+  return zip([
+    ['[Content_Types].xml',hd+'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'],
+    ['_rels/.rels',hd+`<Relationships xmlns="${PR}"><Relationship Id="rId1" Type="${RN}/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+    ['xl/workbook.xml',hd+`<workbook ${NS} xmlns:r="${RN}"><sheets><sheet name="실태조사 대상" sheetId="1" r:id="rId1"/></sheets></workbook>`],
+    ['xl/_rels/workbook.xml.rels',hd+`<Relationships xmlns="${PR}"><Relationship Id="rId1" Type="${RN}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${RN}/styles" Target="styles.xml"/></Relationships>`],
+    ['xl/styles.xml',hd+`<styleSheet ${NS}><fonts count="2"><font><sz val="11"/><name val="맑은 고딕"/></font><font><b/><sz val="11"/><name val="맑은 고딕"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFDDE5EC"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`],
+    ['xl/worksheets/sheet1.xml',hd+`<worksheet ${NS}><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${W.map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>${sd}</sheetData><autoFilter ref="A1:U${data.length+1}"/></worksheet>`]
+  ]);
+}
+//XLSX-END
+$('#map').value=MAP;
+$('#map').onchange=e=>{MAP=e.target.value;try{localStorage.setItem('fsurvey-map',MAP)}catch(x){}render()};
+$('#xl').onclick=()=>{
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([buildXlsx()],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+  a.download='화재안전실태조사_대상목록_메모포함_'+new Date().toISOString().slice(0,10)+'.xlsx';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 };
 function toggle(el){
   const g=G[+el.dataset.i],open=!el.classList.contains('open');
